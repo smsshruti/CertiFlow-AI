@@ -79,4 +79,58 @@ if uploaded_file is not None:
                     # Generate QR Code
                     qr = qrcode.QRCode(box_size=4, border=2)
                     qr.add_data(f"VERIFIED-{cert_hash}")
-                    qr.make(fit=
+                    qr.make(fit=True)
+                    qr_img = qr.make_image(fill_color="black", back_color="white")
+                    
+                    qr_buffer = io.BytesIO()
+                    qr_img.save(qr_buffer, format="PNG")
+                    qr_buffer.seek(0)
+                    
+                    # Draw Landscape PDF
+                    pdf_buffer = io.BytesIO()
+                    c = canvas.Canvas(pdf_buffer, pagesize=landscape(letter))
+                    width, height = landscape(letter)
+                    
+                    # Styling & Text
+                    c.setLineWidth(4)
+                    c.setStrokeColor(colors.HexColor("#1E3A8A"))
+                    c.rect(20, 20, width - 40, height - 40)
+                    
+                    c.setFont("Helvetica-Bold", 30)
+                    c.setFillColor(colors.HexColor("#1E3A8A"))
+                    c.drawCentredString(width / 2, height - 100, "CERTIFICATE OF ACHIEVEMENT")
+                    
+                    c.setFont("Helvetica", 16)
+                    c.setFillColor(colors.black)
+                    c.drawCentredString(width / 2, height - 150, "This is proudly presented to")
+                    
+                    c.setFont("Helvetica-Bold", 26)
+                    c.setFillColor(colors.HexColor("#0D9488"))
+                    c.drawCentredString(width / 2, height - 210, name)
+                    
+                    c.setFont("Helvetica", 16)
+                    c.setFillColor(colors.black)
+                    c.drawCentredString(width / 2, height - 260, f"For outstanding performance as: {achievement}")
+                    
+                    c.setFont("Helvetica-Oblique", 10)
+                    c.setFillColor(colors.gray)
+                    c.drawString(40, 40, f"Verification ID: {cert_hash}")
+                    
+                    # Draw QR Code to Canvas
+                    from reportlab.lib.utils import ImageReader
+                    qr_image_reader = ImageReader(qr_buffer)
+                    c.drawImage(qr_image_reader, width - 120, 35, width=80, height=80)
+                    
+                    c.showPage()
+                    c.save()
+                    
+                    pdf_buffer.seek(0)
+                    zip_file.writestr(f"Certificate_{name.replace(' ', '_')}.pdf", pdf_buffer.getvalue())
+            
+            st.success("Batch Certificates Generated!")
+            st.download_button(
+                label="Download All Certificates (ZIP)",
+                data=zip_buffer.getvalue(),
+                file_name="Certificates_Batch.zip",
+                mime="application/zip"
+            )
