@@ -448,6 +448,11 @@ if uploaded_file is not None:
     try:
 
         df = pd.read_csv(uploaded_file)
+        # Normalize CSV column names
+        df.columns=[
+            str(col).strip().lower()
+            for col in df.columns
+        ]
 
         st.write("### Raw Data Preview")
 
