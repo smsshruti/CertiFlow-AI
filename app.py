@@ -11,11 +11,13 @@ import google.generativeai as genai
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
+from reportlab.lib.utils import ImageReader
 
-# 1. Load API Key
+# 1. Load API Key from .env file
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
 
+# 2. Connect to Gemini AI
 if api_key:
     genai.configure(api_key=api_key)
 
@@ -33,7 +35,7 @@ if uploaded_file is not None:
     st.write("### Raw Data Preview")
     st.dataframe(df)
 
-    # Step 2: AI Data Cleaning & Counting
+    # Step 2: AI Cleaning
     st.header("Step 2: AI Data Cleaning & Standardization")
     if st.button("Clean Data with Gemini AI"):
         if not api_key:
@@ -41,14 +43,19 @@ if uploaded_file is not None:
         else:
             with st.spinner("AI is cleaning and standardizing participant data..."):
                 raw_data_str = df.to_csv(index=False)
-                prompt = f"Clean and format this data properly into a valid JSON array of objects with keys 'name', 'email', and 'achievement':\n{raw_data_str}"
+                prompt = f"Clean and format this data properly into a valid JSON array of objects with keys 'name', 'email', and 'achievement'. Return ONLY raw JSON without markdown or formatting:\n{raw_data_str}"
                 
                 try:
-                    model = genai.GenerativeModel('gemini-3.6-flash')
+                    model = genai.GenerativeModel('gemini-2.5-flash')
                     response = model.generate_content(prompt)
                     cleaned_text = response.text.strip()
-                    if cleaned_text.startswith("```json"):
-                        cleaned_text = cleaned_text[7:-3].strip()
+                    
+                    # Robust JSON block extraction
+                    if "```json" in cleaned_text:
+                        cleaned_text = cleaned_text.split("```json")[1].split("```")[0].strip()
+                    elif "```" in cleaned_text:
+                        cleaned_text = cleaned_text.split("```")[1].split("```")[0].strip()
+                        
                     cleaned_json = json.loads(cleaned_text)
                     cleaned_df = pd.DataFrame(cleaned_json)
                     st.session_state['cleaned_df'] = cleaned_df
@@ -59,39 +66,28 @@ if uploaded_file is not None:
     if 'cleaned_df' in st.session_state:
         st.write("### Cleaned Data Preview")
         st.dataframe(st.session_state['cleaned_df'])
-        
-        # Real-time Metrics & Counting
-        total_records = len(st.session_state['cleaned_df'])
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Records Processed", total_records)
-        col2.metric("Valid Email Domains", f"{total_records}/{total_records}")
-        col3.metric("Status", "Ready for Batch Build")
 
-        # Step 3: Certificate & Hash Tag Generation
+        # Step 3: Certificate & QR Code Generation
         st.header("Step 3: Generate PDF Certificates & Verification QR Codes")
         if st.button("Generate Certificates Batch"):
             zip_buffer = io.BytesIO()
-            verification_db = []
-            
+            verification_db = {}
+
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                 for idx, row in st.session_state['cleaned_df'].iterrows():
                     name = str(row.get('name', 'Participant'))
                     achievement = str(row.get('achievement', 'Participation'))
                     
-                    # Cryptographic Hash Tag Generation
+                    # Cryptographic Hash & Verification Data
                     verify_str = f"{name}-{achievement}"
-                    cert_hash = f"CERT-HASH-{hashlib.sha256(verify_str.encode()).hexdigest()[:10].upper()}"
+                    cert_hash = hashlib.sha256(verify_str.encode()).hexdigest()[:12].upper()
                     
-                    verification_db.append({
-                        "Name": name,
-                        "Achievement": achievement,
-                        "Hash Tag": cert_hash,
-                        "Status": "VERIFIED ✅"
-                    })
+                    # Store record in session for local verification lookup
+                    verification_db[cert_hash] = {"name": name, "achievement": achievement}
                     
-                    # Generate QR Code
+                    # Generate QR Code storing Verification ID
                     qr = qrcode.QRCode(box_size=4, border=2)
-                    qr.add_data(f"[https://certiflow-ai.streamlit.app/?verify=](https://certiflow-ai.streamlit.app/?verify=){cert_hash}")
+                    qr.add_data(f"Verification ID: {cert_hash}")
                     qr.make(fit=True)
                     qr_img = qr.make_image(fill_color="black", back_color="white")
                     
@@ -99,11 +95,12 @@ if uploaded_file is not None:
                     qr_img.save(qr_buffer, format="PNG")
                     qr_buffer.seek(0)
                     
-                    # Draw PDF Canvas
+                    # Draw Landscape PDF
                     pdf_buffer = io.BytesIO()
                     c = canvas.Canvas(pdf_buffer, pagesize=landscape(letter))
                     width, height = landscape(letter)
                     
+                    # Styling & Text
                     c.setLineWidth(4)
                     c.setStrokeColor(colors.HexColor("#1E3A8A"))
                     c.rect(20, 20, width - 40, height - 40)
@@ -124,11 +121,11 @@ if uploaded_file is not None:
                     c.setFillColor(colors.black)
                     c.drawCentredString(width / 2, height - 260, f"For outstanding performance as: {achievement}")
                     
-                    c.setFont("Helvetica-Bold", 10)
+                    c.setFont("Helvetica-Oblique", 10)
                     c.setFillColor(colors.gray)
-                    c.drawString(40, 40, f"Verification Hash Tag: #{cert_hash}")
+                    c.drawString(40, 40, f"Verification ID: {cert_hash}")
                     
-                    from reportlab.lib.utils import ImageReader
+                    # Draw QR Code to Canvas
                     qr_image_reader = ImageReader(qr_buffer)
                     c.drawImage(qr_image_reader, width - 120, 35, width=80, height=80)
                     
@@ -138,9 +135,8 @@ if uploaded_file is not None:
                     pdf_buffer.seek(0)
                     zip_file.writestr(f"Certificate_{name.replace(' ', '_')}.pdf", pdf_buffer.getvalue())
             
-            st.session_state['verification_db'] = pd.DataFrame(verification_db)
-            st.success("Batch Certificates & Verification Hashes Generated!")
-            
+            st.session_state['verification_db'] = verification_db
+            st.success("Batch Certificates Generated!")
             st.download_button(
                 label="Download All Certificates (ZIP)",
                 data=zip_buffer.getvalue(),
@@ -148,8 +144,18 @@ if uploaded_file is not None:
                 mime="application/zip"
             )
 
-        # Step 4: Public Revision & Verification Registry
-        if 'verification_db' in st.session_state:
-            st.header("Step 4: Public Revision & Verification Registry")
-            st.write("Live system registry displaying cryptographic hash tags for public verification:")
-            st.dataframe(st.session_state['verification_db'])
+# Step 4: Public Verification Portal
+st.divider()
+st.header("Step 4: Public Certificate Verification Portal")
+search_id = st.text_input("Enter Verification ID (from Certificate bottom corner):").strip().upper()
+
+if st.button("Verify Certificate"):
+    if search_id:
+        v_db = st.session_state.get('verification_db', {})
+        if search_id in v_db:
+            record = v_db[search_id]
+            st.success(f"VALID CERTIFICATE FOUND!\n\n**Issued To:** {record['name']}\n\n**Achievement:** {record['achievement']}")
+        else:
+            st.error("INVALID CERTIFICATE: Verification ID not found or tamper warning.")
+    else:
+        st.warning("Please enter a valid Verification ID.")
