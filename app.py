@@ -814,6 +814,8 @@ if uploaded_file is not None:
                     pd.DataFrame(generated_records),
                     use_container_width=True
                 )
+    except Exception as e:
+        st.error(f"Error processing upload file:{e}")
 
 
 # ============================================================
