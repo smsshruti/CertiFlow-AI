@@ -13,11 +13,10 @@ from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
 
-# 1. Load API Key from .env file
+# 1. Load API Key
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
 
-# 2. Connect to Gemini AI
 if api_key:
     genai.configure(api_key=api_key)
 
@@ -25,6 +24,14 @@ st.set_page_config(page_title="CertiFlow AI", layout="wide")
 
 st.title("CertiFlow AI - Automated Certificate Generation & Data Verification Pipeline")
 st.write("Upload participant data, clean records with Gemini AI, auto-generate PDF certificates, and create QR codes for verification.")
+
+# Pre-populate sample verification records so testing works instantly without uploading files
+if 'verification_db' not in st.session_state:
+    st.session_state['verification_db'] = {
+        "A1B2C3D4E5F6": {"name": "Rahul Sharma", "achievement": "Winner"},
+        "9876543210AB": {"name": "Priya Singh", "achievement": "Participant"},
+        "EF1234567890": {"name": "Aman Verma", "achievement": "Runner Up"}
+    }
 
 # Step 1: File Upload
 st.header("Step 1: Upload Participant Data")
@@ -46,11 +53,10 @@ if uploaded_file is not None:
                 prompt = f"Clean and format this data properly into a valid JSON array of objects with keys 'name', 'email', and 'achievement'. Return ONLY raw JSON without markdown or formatting:\n{raw_data_str}"
                 
                 try:
-                    model = genai.GenerativeModel('gemini-3.6-flash')
+                    model = genai.GenerativeModel('gemini-2.5-flash')
                     response = model.generate_content(prompt)
                     cleaned_text = response.text.strip()
                     
-                    # Robust JSON block extraction
                     if "```json" in cleaned_text:
                         cleaned_text = cleaned_text.split("```json")[1].split("```")[0].strip()
                     elif "```" in cleaned_text:
@@ -71,21 +77,18 @@ if uploaded_file is not None:
         st.header("Step 3: Generate PDF Certificates & Verification QR Codes")
         if st.button("Generate Certificates Batch"):
             zip_buffer = io.BytesIO()
-            verification_db = {}
 
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                 for idx, row in st.session_state['cleaned_df'].iterrows():
                     name = str(row.get('name', 'Participant'))
                     achievement = str(row.get('achievement', 'Participation'))
                     
-                    # Cryptographic Hash & Verification Data
                     verify_str = f"{name}-{achievement}"
                     cert_hash = hashlib.sha256(verify_str.encode()).hexdigest()[:12].upper()
                     
-                    # Store record in session for local verification lookup
-                    verification_db[cert_hash] = {"name": name, "achievement": achievement}
+                    # Store generated record in database
+                    st.session_state['verification_db'][cert_hash] = {"name": name, "achievement": achievement}
                     
-                    # Generate QR Code storing Verification ID
                     qr = qrcode.QRCode(box_size=4, border=2)
                     qr.add_data(f"Verification ID: {cert_hash}")
                     qr.make(fit=True)
@@ -95,12 +98,10 @@ if uploaded_file is not None:
                     qr_img.save(qr_buffer, format="PNG")
                     qr_buffer.seek(0)
                     
-                    # Draw Landscape PDF
                     pdf_buffer = io.BytesIO()
                     c = canvas.Canvas(pdf_buffer, pagesize=landscape(letter))
                     width, height = landscape(letter)
                     
-                    # Styling & Text
                     c.setLineWidth(4)
                     c.setStrokeColor(colors.HexColor("#1E3A8A"))
                     c.rect(20, 20, width - 40, height - 40)
@@ -125,7 +126,6 @@ if uploaded_file is not None:
                     c.setFillColor(colors.gray)
                     c.drawString(40, 40, f"Verification ID: {cert_hash}")
                     
-                    # Draw QR Code to Canvas
                     qr_image_reader = ImageReader(qr_buffer)
                     c.drawImage(qr_image_reader, width - 120, 35, width=80, height=80)
                     
@@ -135,7 +135,6 @@ if uploaded_file is not None:
                     pdf_buffer.seek(0)
                     zip_file.writestr(f"Certificate_{name.replace(' ', '_')}.pdf", pdf_buffer.getvalue())
             
-            st.session_state['verification_db'] = verification_db
             st.success("Batch Certificates Generated!")
             st.download_button(
                 label="Download All Certificates (ZIP)",
@@ -144,10 +143,12 @@ if uploaded_file is not None:
                 mime="application/zip"
             )
 
-# Step 4: Public Verification Portal
+# Step 4: Standalone Public Verification Portal (Always Visible)
 st.divider()
 st.header("Step 4: Public Certificate Verification Portal")
-search_id = st.text_input("Enter Verification ID (from Certificate bottom corner):").strip().upper()
+st.write("Verify any issued certificate directly without uploading files.")
+
+search_id = st.text_input("Enter Verification ID (e.g., try 'A1B2C3D4E5F6'):").strip().upper()
 
 if st.button("Verify Certificate"):
     if search_id:
