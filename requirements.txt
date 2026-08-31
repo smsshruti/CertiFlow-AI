@@ -1,7 +1,6 @@
 streamlit
 pandas
-google-genai
 python-dotenv
+google-generativeai
 reportlab
 qrcode
-pillow
