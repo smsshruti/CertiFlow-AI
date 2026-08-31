@@ -47,7 +47,7 @@ if uploaded_file is not None:
                 prompt = f"Clean and format this data properly into a valid JSON array of objects with keys 'name', 'email', and 'achievement':\n{raw_data_str}"
                 
                 try:
-                    model = genai.GenerativeModel('gemini-3.6-flash')
+                    model = genai.GenerativeModel('gemini-2.5-flash')
                     response = model.generate_content(prompt)
                     cleaned_text = response.text.strip()
                     if cleaned_text.startswith("```json"):
@@ -62,3 +62,21 @@ if uploaded_file is not None:
     if 'cleaned_df' in st.session_state:
         st.write("### Cleaned Data Preview")
         st.dataframe(st.session_state['cleaned_df'])
+
+        # Step 3: Certificate & QR Code Generation
+        st.header("Step 3: Generate PDF Certificates & Verification QR Codes")
+        if st.button("Generate Certificates Batch"):
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                for idx, row in st.session_state['cleaned_df'].iterrows():
+                    name = str(row.get('name', 'Participant'))
+                    achievement = str(row.get('achievement', 'Participation'))
+                    
+                    # Cryptographic Hash & Verification Data
+                    verify_str = f"{name}-{achievement}"
+                    cert_hash = hashlib.sha256(verify_str.encode()).hexdigest()[:12].upper()
+                    
+                    # Generate QR Code
+                    qr = qrcode.QRCode(box_size=4, border=2)
+                    qr.add_data(f"VERIFIED-{cert_hash}")
+                    qr.make(fit=
