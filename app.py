@@ -46,7 +46,7 @@ if uploaded_file is not None:
                 prompt = f"Clean and format this data properly into a valid JSON array of objects with keys 'name', 'email', and 'achievement'. Return ONLY raw JSON without markdown or formatting:\n{raw_data_str}"
                 
                 try:
-                    model = genai.GenerativeModel('gemini-2.5-flash')
+                    model = genai.GenerativeModel('gemini-3.6-flash')
                     response = model.generate_content(prompt)
                     cleaned_text = response.text.strip()
                     
