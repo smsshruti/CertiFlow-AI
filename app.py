@@ -19,7 +19,8 @@ api_key = os.getenv("GEMINI_API_KEY")
 # 2. Connect to Gemini AI
 client = None
 if api_key:
-    client = genai.Client(api_key=api_key)
+    genai.configure(api_key=api_key)
+    client = genai
 
 st.set_page_config(page_title="CertiFlow AI", layout="wide")
 
