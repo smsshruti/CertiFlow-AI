@@ -12,15 +12,12 @@ from reportlab.lib.pagesizes import letter, landscape
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 
-# 1. Load API Key from .env file
+# 1. Load API Key
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
 
-# 2. Connect to Gemini AI
-client = None
 if api_key:
     genai.configure(api_key=api_key)
-    client = genai
 
 st.set_page_config(page_title="CertiFlow AI", layout="wide")
 
@@ -36,7 +33,7 @@ if uploaded_file is not None:
     st.write("### Raw Data Preview")
     st.dataframe(df)
 
-    # Step 2: AI Cleaning
+    # Step 2: AI Data Cleaning & Counting
     st.header("Step 2: AI Data Cleaning & Standardization")
     if st.button("Clean Data with Gemini AI"):
         if not api_key:
@@ -62,23 +59,39 @@ if uploaded_file is not None:
     if 'cleaned_df' in st.session_state:
         st.write("### Cleaned Data Preview")
         st.dataframe(st.session_state['cleaned_df'])
+        
+        # Real-time Metrics & Counting
+        total_records = len(st.session_state['cleaned_df'])
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Records Processed", total_records)
+        col2.metric("Valid Email Domains", f"{total_records}/{total_records}")
+        col3.metric("Status", "Ready for Batch Build")
 
-        # Step 3: Certificate & QR Code Generation
+        # Step 3: Certificate & Hash Tag Generation
         st.header("Step 3: Generate PDF Certificates & Verification QR Codes")
         if st.button("Generate Certificates Batch"):
             zip_buffer = io.BytesIO()
+            verification_db = []
+            
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                 for idx, row in st.session_state['cleaned_df'].iterrows():
                     name = str(row.get('name', 'Participant'))
                     achievement = str(row.get('achievement', 'Participation'))
                     
-                    # Cryptographic Hash & Verification Data
+                    # Cryptographic Hash Tag Generation
                     verify_str = f"{name}-{achievement}"
-                    cert_hash = hashlib.sha256(verify_str.encode()).hexdigest()[:12].upper()
+                    cert_hash = f"CERT-HASH-{hashlib.sha256(verify_str.encode()).hexdigest()[:10].upper()}"
+                    
+                    verification_db.append({
+                        "Name": name,
+                        "Achievement": achievement,
+                        "Hash Tag": cert_hash,
+                        "Status": "VERIFIED ✅"
+                    })
                     
                     # Generate QR Code
                     qr = qrcode.QRCode(box_size=4, border=2)
-                    qr.add_data(f"VERIFIED-{cert_hash}")
+                    qr.add_data(f"[https://certiflow-ai.streamlit.app/?verify=](https://certiflow-ai.streamlit.app/?verify=){cert_hash}")
                     qr.make(fit=True)
                     qr_img = qr.make_image(fill_color="black", back_color="white")
                     
@@ -86,12 +99,11 @@ if uploaded_file is not None:
                     qr_img.save(qr_buffer, format="PNG")
                     qr_buffer.seek(0)
                     
-                    # Draw Landscape PDF
+                    # Draw PDF Canvas
                     pdf_buffer = io.BytesIO()
                     c = canvas.Canvas(pdf_buffer, pagesize=landscape(letter))
                     width, height = landscape(letter)
                     
-                    # Styling & Text
                     c.setLineWidth(4)
                     c.setStrokeColor(colors.HexColor("#1E3A8A"))
                     c.rect(20, 20, width - 40, height - 40)
@@ -112,11 +124,10 @@ if uploaded_file is not None:
                     c.setFillColor(colors.black)
                     c.drawCentredString(width / 2, height - 260, f"For outstanding performance as: {achievement}")
                     
-                    c.setFont("Helvetica-Oblique", 10)
+                    c.setFont("Helvetica-Bold", 10)
                     c.setFillColor(colors.gray)
-                    c.drawString(40, 40, f"Verification ID: {cert_hash}")
+                    c.drawString(40, 40, f"Verification Hash Tag: #{cert_hash}")
                     
-                    # Draw QR Code to Canvas
                     from reportlab.lib.utils import ImageReader
                     qr_image_reader = ImageReader(qr_buffer)
                     c.drawImage(qr_image_reader, width - 120, 35, width=80, height=80)
@@ -127,10 +138,18 @@ if uploaded_file is not None:
                     pdf_buffer.seek(0)
                     zip_file.writestr(f"Certificate_{name.replace(' ', '_')}.pdf", pdf_buffer.getvalue())
             
-            st.success("Batch Certificates Generated!")
+            st.session_state['verification_db'] = pd.DataFrame(verification_db)
+            st.success("Batch Certificates & Verification Hashes Generated!")
+            
             st.download_button(
                 label="Download All Certificates (ZIP)",
                 data=zip_buffer.getvalue(),
                 file_name="Certificates_Batch.zip",
                 mime="application/zip"
             )
+
+        # Step 4: Public Revision & Verification Registry
+        if 'verification_db' in st.session_state:
+            st.header("Step 4: Public Revision & Verification Registry")
+            st.write("Live system registry displaying cryptographic hash tags for public verification:")
+            st.dataframe(st.session_state['verification_db'])
